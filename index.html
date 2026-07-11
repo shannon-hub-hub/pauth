@@ -496,6 +496,28 @@
     padding-top:14px;
     line-height:1.6;
   }
+
+  /* --- Staff login gate --- */
+  .login-card{
+    max-width:420px;
+    margin:20px auto 0;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:28px;
+  }
+  .login-card .intro{
+    font-size:13px;
+    color:var(--ink-soft);
+    margin:0 0 18px;
+    line-height:1.55;
+  }
+  .login-error{
+    color:var(--red);
+    font-size:12.5px;
+    margin-top:10px;
+    min-height:16px;
+  }
 </style>
 
 <div class="topnav">
@@ -527,6 +549,8 @@
   </div>
 
   <div id="view-draft">
+    <div id="draftLoginWrap"></div>
+    <div id="draftContent" style="display:none;">
     <div class="grid">
       <section class="pane intake-pane">
         <p class="pane-eyebrow">Intake</p>
@@ -582,10 +606,13 @@
         </div>
       </section>
     </div>
+    </div>
   </div>
 
   <div id="view-log" class="log-wrap" style="display:none;">
-    <p class="log-note">Saved to your account only. Visible only to you.</p>
+    <div id="logLoginWrap"></div>
+    <div id="logContent" style="display:none;">
+    <p class="log-note">Shared practice log. Visible to any staff member with the practice password, not per-user.</p>
     <div class="stat-row" id="statRow"></div>
     <div class="calibration" id="calibration">
       <p class="pane-eyebrow">Calibration</p>
@@ -596,6 +623,7 @@
       <p class="pane-eyebrow">History</p>
       <h2 class="pane-title">Logged drafts</h2>
       <div class="entry-list" id="entryList"></div>
+    </div>
     </div>
   </div>
 
@@ -630,8 +658,14 @@
   const viewLog = document.getElementById('view-log');
   const viewPatient = document.getElementById('view-patient');
 
-  let logEntries = [];
+  let appPassword = sessionStorage.getItem('pa_pw') || '';
+  let isAuthed = false;
   let logLoaded = false;
+  let logEntries = [];
+
+  function escapeHtml(s){
+    return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
 
   function genRefCode(){
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -640,6 +674,96 @@
       code += chars[Math.floor(Math.random() * chars.length)];
     }
     return code;
+  }
+
+  async function apiFetch(path, options = {}){
+    const headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
+    if (appPassword) headers['x-app-password'] = appPassword;
+    const res = await fetch(path, Object.assign({}, options, { headers }));
+    return res;
+  }
+
+  async function verifyPassword(pw){
+    try{
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-app-password': pw }
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      return !!data.ok;
+    } catch(e){
+      return false;
+    }
+  }
+
+  function loginCardHTML(){
+    return `
+      <div class="login-card">
+        <p class="pane-eyebrow">Staff sign-in</p>
+        <h2 class="pane-title">Enter practice password</h2>
+        <p class="intro">This area is for practice staff only. Ask your admin for the shared password if you don't have it.</p>
+        <div class="code-input-row">
+          <input type="password" class="login-pw-input" placeholder="Password" />
+          <button class="btn-primary login-submit-btn">Unlock</button>
+        </div>
+        <div class="login-error"></div>
+      </div>
+    `;
+  }
+
+  function wireLoginCard(wrapEl, onSuccess){
+    wrapEl.innerHTML = loginCardHTML();
+    const input = wrapEl.querySelector('.login-pw-input');
+    const btn = wrapEl.querySelector('.login-submit-btn');
+    const err = wrapEl.querySelector('.login-error');
+
+    async function submit(){
+      const pw = input.value;
+      if (!pw){ err.textContent = 'Enter the password.'; return; }
+      btn.disabled = true;
+      btn.textContent = 'Checking...';
+      const ok = await verifyPassword(pw);
+      btn.disabled = false;
+      btn.textContent = 'Unlock';
+      if (ok){
+        appPassword = pw;
+        sessionStorage.setItem('pa_pw', pw);
+        isAuthed = true;
+        err.textContent = '';
+        onSuccess();
+      } else {
+        err.textContent = 'Incorrect password. Try again.';
+      }
+    }
+
+    btn.addEventListener('click', submit);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+  }
+
+  function ensureDraftUnlocked(){
+    const loginWrap = document.getElementById('draftLoginWrap');
+    const content = document.getElementById('draftContent');
+    if (isAuthed){
+      loginWrap.innerHTML = '';
+      content.style.display = 'block';
+    } else {
+      content.style.display = 'none';
+      wireLoginCard(loginWrap, () => ensureDraftUnlocked());
+    }
+  }
+
+  function ensureLogUnlocked(){
+    const loginWrap = document.getElementById('logLoginWrap');
+    const content = document.getElementById('logContent');
+    if (isAuthed){
+      loginWrap.innerHTML = '';
+      content.style.display = 'block';
+      if (!logLoaded) loadLog();
+    } else {
+      content.style.display = 'none';
+      wireLoginCard(loginWrap, () => ensureLogUnlocked());
+    }
   }
 
   exampleBtn.addEventListener('click', () => {
@@ -653,10 +777,6 @@
   function setLoading(isLoading){
     generateBtn.disabled = isLoading;
     generateBtn.innerHTML = isLoading ? '<span class="spinner"></span>Drafting...' : 'Draft justification';
-  }
-
-  function escapeHtml(s){
-    return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
   function renderResult(data, refCode){
@@ -737,57 +857,26 @@
     setLoading(true);
     resultArea.innerHTML = `<div class="empty-state"><p>Drafting the justification...</p></div>`;
 
-    const system = `You are a clinical documentation assistant that drafts prior authorization justifications for outpatient practices. You are careful, conservative, and never invent clinical facts that were not provided. Respond with ONLY a raw JSON object (no markdown fences, no preamble) matching exactly this shape:
-{
-  "icd10": [{"code": "string", "label": "string"}],
-  "cpt": [{"code": "string", "label": "string"}],
-  "narrative": "a 2-4 paragraph medical necessity narrative written in professional clinical language, suitable to paste into a prior auth submission",
-  "missing_documentation": ["short phrases describing documentation gaps that could cause a denial; empty array if none"],
-  "confidence": "high | medium | low",
-  "confidence_reasoning": "one sentence explaining the confidence level"
-}
-Base codes and reasoning only on the information given. If information is insufficient for a code, omit it rather than guessing.`;
-
-    const userMsg = `Clinical summary:\n${summary}\n\nRequested treatment/procedure:\n${treatment}\n\nPrior treatments already tried:\n${prior || 'None provided'}\n\nPayer:\n${payer || 'Not specified'}`;
-
     try{
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 1000,
-          system: system,
-          messages: [{ role: "user", content: userMsg }]
-        })
+      const genRes = await apiFetch('/api/generate', {
+        method: 'POST',
+        body: JSON.stringify({ summary, treatment, prior, payer })
       });
 
-      if (!response.ok){
-        throw new Error(`API returned ${response.status}`);
+      if (genRes.status === 401){
+        throw new Error('Session expired. Please unlock again from the New Draft tab.');
+      }
+      if (!genRes.ok){
+        const errBody = await genRes.json().catch(() => ({}));
+        throw new Error(errBody.error || `Server returned ${genRes.status}`);
       }
 
-      const data = await response.json();
-      const text = (data.content || [])
-        .filter(b => b.type === 'text')
-        .map(b => b.text)
-        .join('\n')
-        .trim()
-        .replace(/^```json\s*/i, '')
-        .replace(/^```\s*/,'')
-        .replace(/```\s*$/,'');
-
-      let parsed;
-      try{
-        parsed = JSON.parse(text);
-      } catch(e){
-        throw new Error('Could not parse the model response as JSON.');
-      }
-
+      const parsed = await genRes.json();
       const refCode = genRefCode();
       renderResult(parsed, refCode);
 
       const confidence = ['high','medium','low'].includes(parsed.confidence) ? parsed.confidence : 'medium';
-      await addToLog({
+      const entry = {
         id: 'd' + Date.now() + Math.random().toString(36).slice(2,7),
         referenceCode: refCode,
         timestamp: Date.now(),
@@ -798,14 +887,17 @@ Base codes and reasoning only on the information given. If information is insuff
         icd10: parsed.icd10 || [],
         cpt: parsed.cpt || [],
         outcome: 'pending'
-      });
+      };
 
-      await savePatientLookup(refCode, {
-        code: refCode,
-        treatment: treatment,
-        outcome: 'pending',
-        updatedAt: Date.now()
+      const saveRes = await apiFetch('/api/drafts', {
+        method: 'POST',
+        body: JSON.stringify(entry)
       });
+      if (!saveRes.ok){
+        console.error('Draft generated but could not be saved to the log.');
+      } else {
+        logLoaded = false;
+      }
     } catch(err){
       resultArea.innerHTML = `<div class="error-box">Something went wrong generating the draft: ${escapeHtml(err.message)}. Please try again.</div>`;
     } finally {
@@ -816,58 +908,51 @@ Base codes and reasoning only on the information given. If information is insuff
   generateBtn.addEventListener('click', generate);
 
   async function loadLog(){
+    const listEl = document.getElementById('entryList');
+    listEl.innerHTML = `<div class="log-empty">Loading...</div>`;
     try{
-      const res = await window.storage.get('paDrafts', false);
-      logEntries = res && res.value ? JSON.parse(res.value) : [];
+      const res = await apiFetch('/api/drafts');
+      if (res.status === 401){
+        isAuthed = false;
+        ensureLogUnlocked();
+        return;
+      }
+      if (!res.ok) throw new Error('Could not load the log');
+      logEntries = await res.json();
+      logLoaded = true;
+      renderLog();
     } catch(e){
-      logEntries = [];
-    }
-    logLoaded = true;
-  }
-
-  async function saveLog(){
-    try{
-      await window.storage.set('paDrafts', JSON.stringify(logEntries), false);
-    } catch(e){
-      console.error('Could not save log', e);
-    }
-  }
-
-  async function addToLog(entry){
-    if (!logLoaded) await loadLog();
-    logEntries.unshift(entry);
-    await saveLog();
-  }
-
-  async function savePatientLookup(code, record){
-    try{
-      await window.storage.set('paLookup:' + code, JSON.stringify(record), true);
-    } catch(e){
-      console.error('Could not save patient lookup', e);
+      listEl.innerHTML = `<div class="error-box">Could not load the outcomes log. ${escapeHtml(e.message)}</div>`;
     }
   }
 
   async function setOutcome(id, outcome){
-    const e = logEntries.find(x => x.id === id);
-    if (e){
-      e.outcome = outcome;
-      await saveLog();
+    try{
+      const res = await apiFetch('/api/drafts', {
+        method: 'PATCH',
+        body: JSON.stringify({ id, outcome })
+      });
+      if (!res.ok) throw new Error('Could not update outcome');
+      const e = logEntries.find(x => x.id === id);
+      if (e) e.outcome = outcome;
       renderLog();
-      if (e.referenceCode){
-        await savePatientLookup(e.referenceCode, {
-          code: e.referenceCode,
-          treatment: e.treatment,
-          outcome: outcome,
-          updatedAt: Date.now()
-        });
-      }
+    } catch(e){
+      alert('Could not update this entry. Please try again.');
     }
   }
 
   async function removeEntry(id){
-    logEntries = logEntries.filter(x => x.id !== id);
-    await saveLog();
-    renderLog();
+    try{
+      const res = await apiFetch('/api/drafts', {
+        method: 'DELETE',
+        body: JSON.stringify({ id })
+      });
+      if (!res.ok) throw new Error('Could not remove entry');
+      logEntries = logEntries.filter(x => x.id !== id);
+      renderLog();
+    } catch(e){
+      alert('Could not remove this entry. Please try again.');
+    }
   }
 
   function fmtDate(ts){
@@ -915,7 +1000,7 @@ Base codes and reasoning only on the information given. If information is insuff
       <div class="entry">
         <div class="entry-main">
           <div class="entry-label">${escapeHtml(e.label)}</div>
-          <div class="entry-meta">${escapeHtml(e.treatment)} · ${escapeHtml(e.payer)} · ${fmtDate(e.timestamp)} · <span class="badge ${e.confidence}">${e.confidence}</span></div>
+          <div class="entry-meta">${escapeHtml(e.treatment)} &middot; ${escapeHtml(e.payer)} &middot; ${fmtDate(e.timestamp)} &middot; <span class="badge ${e.confidence}">${e.confidence}</span></div>
         </div>
         <div class="entry-controls">
           <button class="outcome-btn ${e.outcome === 'pending' ? 'active-pending' : ''}" data-id="${e.id}" data-outcome="pending">Pending</button>
@@ -945,18 +1030,18 @@ Base codes and reasoning only on the information given. If information is insuff
     viewPatient.style.display = 'none';
   }
 
-  async function showLogView(){
+  function showLogView(){
     hideAllViews();
     viewLog.style.display = 'block';
     setActiveNav(navLogBtn);
-    if (!logLoaded) await loadLog();
-    renderLog();
+    ensureLogUnlocked();
   }
 
   function showDraftView(){
     hideAllViews();
     viewDraft.style.display = 'block';
     setActiveNav(navDraftBtn);
+    ensureDraftUnlocked();
   }
 
   function showPatientView(){
@@ -988,12 +1073,12 @@ Base codes and reasoning only on the information given. If information is insuff
     statusResult.innerHTML = `<p style="font-size:13px; color:var(--ink-soft);">Checking...</p>`;
 
     try{
-      const res = await window.storage.get('paLookup:' + code, true);
-      if (!res || !res.value){
+      const res = await fetch('/api/lookup?code=' + encodeURIComponent(code));
+      if (!res.ok){
         statusResult.innerHTML = `<div class="error-box">We couldn't find a request with that code. Double-check it with your care team.</div>`;
         return;
       }
-      const record = JSON.parse(res.value);
+      const record = await res.json();
       const s = statusCopy(record.outcome);
       const updated = new Date(record.updatedAt).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
       statusResult.innerHTML = `
@@ -1013,4 +1098,13 @@ Base codes and reasoning only on the information given. If information is insuff
   document.getElementById('patientCode').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') checkStatus();
   });
+
+  // Initial state: try to silently restore a session password, then unlock the draft view.
+  (async function init(){
+    if (appPassword){
+      isAuthed = await verifyPassword(appPassword);
+      if (!isAuthed) sessionStorage.removeItem('pa_pw');
+    }
+    ensureDraftUnlocked();
+  })();
 </script>
