@@ -1099,12 +1099,27 @@
     if (e.key === 'Enter') checkStatus();
   });
 
-  // Initial state: try to silently restore a session password, then unlock the draft view.
+  // Initial state: check whether the practice has a password configured at
+  // all. If not, login is skipped entirely. If so, try to silently restore
+  // a session password before falling back to the gate.
   (async function init(){
-    if (appPassword){
+    let required = true;
+    try{
+      const statusRes = await fetch('/api/auth');
+      const statusData = await statusRes.json();
+      required = !!statusData.required;
+    } catch(e){
+      // If we can't reach the status check, assume a password is required
+      // and let the normal gate flow handle it.
+    }
+
+    if (!required){
+      isAuthed = true;
+    } else if (appPassword){
       isAuthed = await verifyPassword(appPassword);
       if (!isAuthed) sessionStorage.removeItem('pa_pw');
     }
+
     ensureDraftUnlocked();
   })();
 </script>
