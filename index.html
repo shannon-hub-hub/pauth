@@ -549,8 +549,6 @@
   </div>
 
   <div id="view-draft">
-    <div id="draftLoginWrap"></div>
-    <div id="draftContent" style="display:none;">
     <div class="grid">
       <section class="pane intake-pane">
         <p class="pane-eyebrow">Intake</p>
@@ -605,7 +603,6 @@
           </div>
         </div>
       </section>
-    </div>
     </div>
   </div>
 
@@ -741,18 +738,6 @@
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
   }
 
-  function ensureDraftUnlocked(){
-    const loginWrap = document.getElementById('draftLoginWrap');
-    const content = document.getElementById('draftContent');
-    if (isAuthed){
-      loginWrap.innerHTML = '';
-      content.style.display = 'block';
-    } else {
-      content.style.display = 'none';
-      wireLoginCard(loginWrap, () => ensureDraftUnlocked());
-    }
-  }
-
   function ensureLogUnlocked(){
     const loginWrap = document.getElementById('logLoginWrap');
     const content = document.getElementById('logContent');
@@ -863,9 +848,6 @@
         body: JSON.stringify({ summary, treatment, prior, payer })
       });
 
-      if (genRes.status === 401){
-        throw new Error('Session expired. Please unlock again from the New Draft tab.');
-      }
       if (!genRes.ok){
         const errBody = await genRes.json().catch(() => ({}));
         throw new Error(errBody.error || `Server returned ${genRes.status}`);
@@ -1041,7 +1023,6 @@
     hideAllViews();
     viewDraft.style.display = 'block';
     setActiveNav(navDraftBtn);
-    ensureDraftUnlocked();
   }
 
   function showPatientView(){
@@ -1099,9 +1080,8 @@
     if (e.key === 'Enter') checkStatus();
   });
 
-  // Initial state: check whether the practice has a password configured at
-  // all. If not, login is skipped entirely. If so, try to silently restore
-  // a session password before falling back to the gate.
+  // Initial state: check whether the practice has a password configured for
+  // the Outcomes Log. New Draft is always open — see README for why.
   (async function init(){
     let required = true;
     try{
@@ -1110,7 +1090,7 @@
       required = !!statusData.required;
     } catch(e){
       // If we can't reach the status check, assume a password is required
-      // and let the normal gate flow handle it.
+      // and let the Outcomes Log gate handle it when visited.
     }
 
     if (!required){
@@ -1119,7 +1099,5 @@
       isAuthed = await verifyPassword(appPassword);
       if (!isAuthed) sessionStorage.removeItem('pa_pw');
     }
-
-    ensureDraftUnlocked();
   })();
 </script>

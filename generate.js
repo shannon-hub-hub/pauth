@@ -1,4 +1,8 @@
-import { checkAuth } from '../lib/auth.js';
+// Intentionally NOT gated by a password: drafting a justification is a
+// low-risk, single-use action with no stored history of its own. The
+// Outcomes Log (api/drafts.js GET/PATCH/DELETE) is where the aggregated,
+// more sensitive history lives, and that stays password-protected when
+// APP_PASSWORD is set. See README.md "Security & compliance".
 
 const SYSTEM_PROMPT = `You are a clinical documentation assistant that drafts prior authorization justifications for outpatient practices. You are careful, conservative, and never invent clinical facts that were not provided. Respond with ONLY a raw JSON object (no markdown fences, no preamble) matching exactly this shape:
 {
@@ -14,11 +18,6 @@ Base codes and reasoning only on the information given. If information is insuff
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
-    return;
-  }
-
-  if (!checkAuth(req)) {
-    res.status(401).json({ error: 'Unauthorized' });
     return;
   }
 

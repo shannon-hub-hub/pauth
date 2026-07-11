@@ -52,7 +52,7 @@ The frontend (`index.html`) never talks to Anthropic directly and never holds an
 
 Data (the outcomes log and patient lookup records) is stored in **Vercel KV**, a hosted key-value store, so it persists across visits and devices rather than living only in one browser.
 
-New Draft and Outcomes Log can optionally sit behind one shared password for the whole practice (`APP_PASSWORD`), simple, and off by default, see the compliance section below for what it does and doesn't protect against.
+**New Draft is always open, no login**, drafting a justification doesn't touch any stored history on its own, so there's nothing sensitive to gate. **Outcomes Log can optionally sit behind one shared password** (`APP_PASSWORD`) for the whole practice, since that's the aggregated, more sensitive view. See the compliance section below for what that gate does and doesn't protect against.
 
 ```
 index.html          the whole frontend — HTML, CSS, and JS in one file
@@ -93,7 +93,7 @@ In the Vercel dashboard: your project → **Storage** tab → create a **KV** da
 | `ANTHROPIC_API_KEY` | your key from step 1 — **required** |
 | `APP_PASSWORD` | a shared passphrase for your staff, e.g. `riverside-clinic-2026` — **optional** |
 
-`APP_PASSWORD` is optional. Leave it unset and the New Draft and Outcomes Log tabs are open to anyone with the link, no login at all. Set it if you want a lightweight gate between those tabs and the public internet. Either way, Patient Status never requires a password.
+`APP_PASSWORD` is optional and only ever gates the Outcomes Log (viewing history, changing outcomes). New Draft never requires it, drafting a single justification doesn't touch stored history. Patient Status also never requires a password.
 
 See `.env.example` for reference. Apply to Production (and Preview if you use it).
 
@@ -108,8 +108,8 @@ git push
 
 ### 6. Test all three tabs
 
-- **New Draft**: password-protected, click "Load example," then "Draft justification."
-- **Outcomes Log**: should show the case you just drafted; mark it Approved and watch the calibration chart update.
+- **New Draft**: no login needed, click "Load example," then "Draft justification."
+- **Outcomes Log**: enter the staff password if you set one; the case you just drafted should be there. Mark it Approved and watch the calibration chart update.
 - **Patient Status**: open in a private window (no password needed), enter the reference code from your test, confirm you see status with no clinical detail.
 
 ---
@@ -119,7 +119,7 @@ git push
 **This is not HIPAA compliant as shipped.** Specifically:
 
 - **No Business Associate Agreement (BAA) with Anthropic is set up by this code.** Sending real PHI without one in place is a compliance violation, use de-identified or synthetic cases until a BAA is signed.
-- **One shared password, not per-user login — and off by default.** If `APP_PASSWORD` isn't set, New Draft and Outcomes Log are wide open to anyone with the link. Even with it set, there's no record of *which* staff member drafted or updated a case. A real deployment needs individual accounts and audit logging.
+- **One shared password, only on the Outcomes Log, and off by default.** New Draft never requires it. If `APP_PASSWORD` isn't set, the Outcomes Log is also wide open to anyone with the link. Even with it set, there's no record of *which* staff member drafted or updated a case. A real deployment needs individual accounts and audit logging.
 - **Reference codes are convenient, not strong secrets.** A 6-character code is guessable at scale. The lookup route limits exposure by returning only treatment name and status, never diagnosis or notes, but a production version should add a second identifier (like date of birth) before revealing anything.
 - **No formal data retention or deletion policy is implemented.**
 - **The narrative is a draft, not a final answer.** Nothing here technically enforces clinician review before submission; that has to be a practice process, not a feature of this code.

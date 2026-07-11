@@ -7,8 +7,14 @@ function lookupKey(code) {
   return 'pa:lookup:' + code;
 }
 
+// POST is intentionally left open (not gated by checkAuth): it's how a
+// freshly generated draft gets saved right after api/generate.js runs,
+// which is also open. Viewing the full history (GET) and changing outcomes
+// (PATCH/DELETE) require the practice password when one is set, since that
+// aggregated view is the more sensitive surface. See README.md.
+
 export default async function handler(req, res) {
-  if (!checkAuth(req)) {
+  if (req.method !== 'POST' && !checkAuth(req)) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
